@@ -1,0 +1,366 @@
+openapi: 3.0.3
+info:
+  title: Data Analyst API
+  version: "0.3"
+  description: >
+    Backend para el agente data_analyst de Copilot Studio.
+    Carga datasets desde SharePoint y realiza análisis estadístico, EDA y forecasting.
+    Cada respuesta incluye `text_summary`, frase lista para mostrar al usuario.
+
+servers:
+  - url: https://perra.azurewebsites.net
+    description: Azure App Service (Producción)
+
+tags:
+  - name: system
+    description: Estado del servicio
+  - name: analysis
+    description: Auditoría y análisis exploratorio de datos
+  - name: forecast
+    description: Predicción de series temporales
+
+paths:
+
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Verificar que el servicio está activo
+      description: Devuelve ok si el servicio funciona. Útil para comprobar conectividad antes de llamar otros endpoints.
+      tags: [system]
+      responses:
+        "200":
+          description: Servicio activo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /describe:
+    post:
+      operationId: describeDataset
+      summary: Auditar un dataset de SharePoint
+      description: >
+        Paso 1 del pipeline de análisis. Carga un archivo de SharePoint y devuelve:
+        nombres de columnas, tipos de datos, conteo de nulos, estadísticas básicas
+        y filas de muestra. Llama a este endpoint primero para saber con qué columnas
+        está trabajando el agente.
+      tags: [analysis]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileRef"
+            example:
+              file_path: "Shared Documents/ventas.xlsx"
+              sheet: "Hoja1"
+      responses:
+        "200":
+          description: Perfil del dataset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DescribeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/UpstreamError"
+
+  /analyze:
+    post:
+      operationId: analyzeDataset
+      summary: EDA completo sobre un dataset de SharePoint
+      description: >
+        Realiza análisis exploratorio completo: estadísticas descriptivas,
+        detección de outliers por método IQR, correlaciones de Pearson y
+        distribuciones categóricas. Opcionalmente filtra por columna categórica
+        y enfoca el análisis en una columna objetivo (target_column).
+      tags: [analysis]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyzeRequest"
+            example:
+              file_path: "Shared Documents/ventas.xlsx"
+              sheet: "Hoja1"
+              group_by: "Municipio"
+              group_value: "Madrid"
+              target_column: "Ventas"
+      responses:
+        "200":
+          description: Resultados del EDA
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyzeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/UpstreamError"
+
+  /run-forecast:
+    post:
+      operationId: runForecast
+      summary: Forecast de una serie temporal desde SharePoint
+      description: >
+        Ajusta una tendencia lineal a una columna numérica temporal y proyecta
+        N periodos futuros. Devuelve datos históricos, dirección de tendencia
+        (ascending / descending / flat) y valores proyectados.
+        Opcionalmente filtra por columna de grupo (ej. Municipio, Sector).
+      tags: [forecast]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForecastRequest"
+            example:
+              file_path: "Shared Documents/ventas.xlsx"
+              date_column: "Fecha"
+              value_column: "Ventas"
+              group_by: "Municipio"
+              group_value: "Madrid"
+              forecast_periods: 3
+      responses:
+        "200":
+          description: Resultados del forecast
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/UpstreamError"
+
+components:
+
+  responses:
+    BadRequest:
+      description: Parámetros incorrectos o columna no encontrada
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+    UpstreamError:
+      description: Error de autenticación o al obtener el archivo de SharePoint
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+
+  schemas:
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Descripción del error
+
+    FileRef:
+      type: object
+      required: [file_path]
+      properties:
+        file_path:
+          type: string
+          description: Ruta al archivo dentro de la biblioteca de SharePoint
+          example: "Shared Documents/ventas.xlsx"
+        sheet:
+          type: string
+          nullable: true
+          description: Nombre de la hoja Excel. Vacío = primera hoja.
+
+    AnalyzeRequest:
+      allOf:
+        - $ref: "#/components/schemas/FileRef"
+        - type: object
+          properties:
+            group_by:
+              type: string
+              nullable: true
+              description: Columna categórica para filtrar (ej. "Municipio")
+            group_value:
+              type: string
+              nullable: true
+              description: Valor del filtro en group_by (ej. "Madrid")
+            target_column:
+              type: string
+              nullable: true
+              description: Columna numérica de interés principal para correlaciones y outliers
+
+    ForecastRequest:
+      allOf:
+        - $ref: "#/components/schemas/FileRef"
+        - type: object
+          required: [date_column, value_column]
+          properties:
+            date_column:
+              type: string
+              description: Columna con fechas o periodos temporales
+              example: "Fecha"
+            value_column:
+              type: string
+              description: Columna numérica a predecir
+              example: "Ventas"
+            group_by:
+              type: string
+              nullable: true
+              description: Columna para filtrar (ej. "Municipio")
+            group_value:
+              type: string
+              nullable: true
+              description: Valor del filtro
+            forecast_periods:
+              type: integer
+              default: 3
+              minimum: 1
+              maximum: 24
+              description: Número de periodos futuros a proyectar
+
+    ColumnProfile:
+      type: object
+      properties:
+        dtype:
+          type: string
+        null_count:
+          type: integer
+        null_pct:
+          type: number
+        unique:
+          type: integer
+        min:
+          type: number
+        max:
+          type: number
+        mean:
+          type: number
+        median:
+          type: number
+        std:
+          type: number
+        q25:
+          type: number
+        q75:
+          type: number
+        top_values:
+          type: object
+          additionalProperties:
+            type: integer
+
+    DescribeResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        shape:
+          type: object
+          properties:
+            rows:
+              type: integer
+            columns:
+              type: integer
+        column_profiles:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ColumnProfile"
+        missing_values:
+          type: object
+          additionalProperties:
+            type: object
+        sample_rows:
+          type: array
+          items:
+            type: object
+        text_summary:
+          type: string
+          description: Resumen legible listo para mostrar al usuario
+
+    AnalyzeResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        filter:
+          type: string
+          nullable: true
+        shape:
+          type: object
+          properties:
+            rows:
+              type: integer
+            columns:
+              type: integer
+        numeric_stats:
+          type: object
+        outliers:
+          type: object
+        categorical_distributions:
+          type: object
+        correlations:
+          type: object
+        target_analysis:
+          type: object
+          nullable: true
+        text_summary:
+          type: string
+          description: Resumen legible listo para mostrar al usuario
+
+    ForecastResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        filter:
+          type: string
+          nullable: true
+        summary:
+          type: object
+          properties:
+            count:
+              type: integer
+            total:
+              type: number
+            mean:
+              type: number
+            median:
+              type: number
+            min:
+              type: number
+            max:
+              type: number
+            std:
+              type: number
+            trend:
+              type: string
+              enum: [ascending, descending, flat]
+            slope_per_period:
+              type: number
+        historical:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              value:
+                type: number
+        forecast:
+          type: array
+          items:
+            type: object
+            properties:
+              period:
+                type: integer
+              value:
+                type: number
+        text_summary:
+          type: string
+          description: Resumen legible listo para mostrar al usuario
