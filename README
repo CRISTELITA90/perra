@@ -1,0 +1,16 @@
+# Forecast API
+
+API FastAPI para forecasting por municipio×sector.
+
+## Endpoints
+- GET /health  -> estado
+- POST /run-forecast -> ejecuta pipeline
+
+## Variables de entorno
+- SCM_DO_BUILD_DURING_DEPLOYMENT=1
+- WEBSITES_PORT=8000
+- (otras: TENANT_ID, CLIENT_ID, CLIENT_SECRET, SHAREPOINT_SITE, etc.)
+
+## Run local
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
