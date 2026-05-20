@@ -1,13 +1,4 @@
 fastapi
 uvicorn[standard]
-pandas
-numpy
-openpyxl
-matplotlib
-scikit-learn
-statsmodels
-xgboost
-prophet
-msal
-requests
 gunicorn
+``
