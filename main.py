@@ -4,10 +4,19 @@ import requests
 import pandas as pd
 import numpy as np
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi.openapi.utils import get_openapi
+from pydantic import BaseModel, Field
 from typing import Optional, Any
 
-app = FastAPI(title="Data Analyst API", version="0.3")
+app = FastAPI(
+    title="Data Analyst API",
+    version="0.3",
+    description=(
+        "Backend para el agente data_analyst de Copilot Studio. "
+        "Carga datasets desde SharePoint y realiza análisis estadístico, EDA y forecasting. "
+        "Cada respuesta incluye `text_summary`, una frase lista para mostrar al usuario."
+    ),
+)
 
 
 # ── Microsoft Graph auth ───────────────────────────────────────────────────────
@@ -28,8 +37,7 @@ def _graph_token() -> str:
 
 
 def _fetch_file(token: str, file_path: str) -> bytes:
-    """Download a file from SharePoint via Graph API."""
-    site = os.environ["SHAREPOINT_SITE"]   # e.g. "mycompany.sharepoint.com:/sites/MySite"
+    site = os.environ["SHAREPOINT_SITE"]  # e.g. "mycompany.sharepoint.com:/sites/MySite"
     h = {"Authorization": f"Bearer {token}"}
 
     site_resp = requests.get(
@@ -69,28 +77,56 @@ def _auth_and_load(file_path: str, sheet: Optional[str]) -> pd.DataFrame:
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
 class FileRef(BaseModel):
-    file_path: str
-    sheet: Optional[str] = None
+    file_path: str = Field(
+        ...,
+        description="Ruta al archivo dentro de la biblioteca de SharePoint.",
+        examples=["Shared Documents/ventas.xlsx"],
+    )
+    sheet: Optional[str] = Field(
+        None,
+        description="Nombre de la hoja Excel. Dejar vacío para usar la primera hoja.",
+    )
 
 
 class AnalyzeRequest(FileRef):
-    group_by: Optional[str] = None
-    group_value: Optional[str] = None
-    target_column: Optional[str] = None   # column to focus analysis on
+    group_by: Optional[str] = Field(
+        None,
+        description="Columna categórica para filtrar (ej. 'Municipio').",
+    )
+    group_value: Optional[str] = Field(
+        None,
+        description="Valor del filtro en group_by (ej. 'Madrid').",
+    )
+    target_column: Optional[str] = Field(
+        None,
+        description="Columna numérica de interés principal: se detallan sus correlaciones y outliers.",
+    )
 
 
 class ForecastRequest(FileRef):
-    date_column: str
-    value_column: str
-    group_by: Optional[str] = None
-    group_value: Optional[str] = None
-    forecast_periods: int = 3
+    date_column: str = Field(
+        ...,
+        description="Columna que contiene fechas o periodos temporales.",
+        examples=["Fecha"],
+    )
+    value_column: str = Field(
+        ...,
+        description="Columna numérica a predecir.",
+        examples=["Ventas"],
+    )
+    group_by: Optional[str] = Field(None, description="Columna para filtrar (ej. 'Municipio').")
+    group_value: Optional[str] = Field(None, description="Valor del filtro.")
+    forecast_periods: int = Field(
+        3,
+        ge=1,
+        le=24,
+        description="Número de periodos futuros a proyectar.",
+    )
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _col_profile(series: pd.Series) -> dict[str, Any]:
-    """Return a rich profile for one column."""
     dtype = str(series.dtype)
     nulls = int(series.isna().sum())
     total = len(series)
@@ -141,32 +177,46 @@ def _correlation_matrix(df: pd.DataFrame) -> dict[str, dict[str, float]]:
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
-@app.get("/")
+@app.get(
+    "/",
+    summary="Root",
+    operation_id="root",
+    tags=["system"],
+)
 def root():
     return {"ok": True, "service": "data-analyst-api", "version": "0.3"}
 
 
-@app.get("/health")
+@app.get(
+    "/health",
+    summary="Health check",
+    description="Verifica que el servicio está activo. Úsalo para comprobar conectividad.",
+    operation_id="healthCheck",
+    tags=["system"],
+)
 def health():
     return {"status": "ok"}
 
 
-@app.post("/describe")
+@app.post(
+    "/describe",
+    summary="Auditar un dataset de SharePoint",
+    description=(
+        "**Paso 1 del pipeline.** Carga un archivo de SharePoint y devuelve: "
+        "nombres de columnas, tipos de datos, conteo de nulos, estadísticas básicas y filas de muestra. "
+        "Llama a este endpoint primero para que el agente sepa con qué columnas está trabajando."
+    ),
+    operation_id="describeDataset",
+    tags=["analysis"],
+)
 def describe(req: FileRef):
-    """
-    Step 1 of the pipeline: audit the dataset.
-    Returns shape, column profiles, missing-value map, and sample rows.
-    Copilot Studio: call this first so the agent knows what it is working with.
-    """
     df = _auth_and_load(req.file_path, req.sheet)
 
     profiles = {col: _col_profile(df[col]) for col in df.columns}
     missing_map = {
-        col: {"count": int(df[col].isna().sum()),
-              "pct": round(df[col].isna().mean() * 100, 1)}
+        col: {"count": int(df[col].isna().sum()), "pct": round(df[col].isna().mean() * 100, 1)}
         for col in df.columns if df[col].isna().any()
     }
-
     sample = df.head(5).fillna("").astype(str).to_dict(orient="records")
 
     text = (
@@ -186,12 +236,18 @@ def describe(req: FileRef):
     }
 
 
-@app.post("/analyze")
+@app.post(
+    "/analyze",
+    summary="EDA completo sobre un dataset de SharePoint",
+    description=(
+        "Realiza análisis exploratorio de datos (EDA) completo: estadísticas descriptivas, "
+        "detección de outliers (método IQR), correlaciones de Pearson y distribuciones categóricas. "
+        "Opcionalmente filtra por columna categórica y enfoca el análisis en una columna objetivo."
+    ),
+    operation_id="analyzeDataset",
+    tags=["analysis"],
+)
 def analyze(req: AnalyzeRequest):
-    """
-    Full EDA: statistics, outliers, correlations, and distributions.
-    Optionally filter by group_by/group_value and focus on target_column.
-    """
     df = _auth_and_load(req.file_path, req.sheet)
 
     if req.group_by and req.group_value:
@@ -204,36 +260,25 @@ def analyze(req: AnalyzeRequest):
     num_cols = df.select_dtypes(include="number").columns.tolist()
     cat_cols = df.select_dtypes(exclude="number").columns.tolist()
 
-    # Numeric stats
-    stats: dict[str, Any] = {}
-    outliers: dict[str, Any] = {}
-    for col in num_cols:
-        stats[col] = _col_profile(df[col])
-        outliers[col] = _detect_outliers(df[col])
-
-    # Categorical distributions
-    cat_dist: dict[str, Any] = {}
-    for col in cat_cols:
-        vc = df[col].value_counts()
-        cat_dist[col] = {
-            "unique": int(df[col].nunique()),
-            "top": {str(k): int(v) for k, v in vc.head(10).items()},
-        }
-
-    # Correlations
+    stats: dict[str, Any] = {col: _col_profile(df[col]) for col in num_cols}
+    outliers: dict[str, Any] = {col: _detect_outliers(df[col]) for col in num_cols}
+    cat_dist: dict[str, Any] = {
+        col: {"unique": int(df[col].nunique()),
+              "top": {str(k): int(v) for k, v in df[col].value_counts().head(10).items()}}
+        for col in cat_cols
+    }
     corr = _correlation_matrix(df)
 
-    # Focus on target column if given
     target_summary: Optional[dict] = None
     if req.target_column:
         if req.target_column not in df.columns:
             raise HTTPException(400, f"target_column '{req.target_column}' not found")
         col_data = df[req.target_column]
         if pd.api.types.is_numeric_dtype(col_data):
-            top_corr = (
-                {k: v for k, v in (corr.get(req.target_column) or {}).items()
-                 if k != req.target_column}
-            )
+            top_corr = {
+                k: v for k, v in (corr.get(req.target_column) or {}).items()
+                if k != req.target_column
+            }
             target_summary = {
                 "profile": _col_profile(col_data),
                 "outliers": _detect_outliers(col_data),
@@ -264,12 +309,18 @@ def analyze(req: AnalyzeRequest):
     }
 
 
-@app.post("/run-forecast")
+@app.post(
+    "/run-forecast",
+    summary="Forecast de una serie temporal desde SharePoint",
+    description=(
+        "Ajusta una tendencia lineal a una columna numérica temporal y proyecta N periodos futuros. "
+        "Devuelve datos históricos, dirección de tendencia (ascending/descending/flat) "
+        "y valores proyectados. Opcionalmente filtra por columna de grupo."
+    ),
+    operation_id="runForecast",
+    tags=["forecast"],
+)
 def run_forecast(req: ForecastRequest):
-    """
-    Linear trend forecast over a time series column.
-    Returns historical data, summary stats, trend direction, and projected values.
-    """
     df = _auth_and_load(req.file_path, req.sheet)
 
     if req.group_by and req.group_value:
