@@ -1,4 +1,7 @@
-import os
+@app.get("/")
+def root():
+    return {"ok": True, "service": "Forecast API"}
+    import os
 from fastapi import FastAPI
 
 app = FastAPI(title="Forecast API", version="0.1")
