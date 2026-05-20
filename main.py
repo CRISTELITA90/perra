@@ -3,6 +3,10 @@ from fastapi import FastAPI
 
 app = FastAPI(title="Forecast API", version="0.1")
 
+@app.get("/")
+def root():
+    return {"ok": True, "service": "forecast-api"}
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
