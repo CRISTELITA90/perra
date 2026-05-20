@@ -10,3 +10,4 @@ xgboost
 prophet
 msal
 requests
+gunicorn
