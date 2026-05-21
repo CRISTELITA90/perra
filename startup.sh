@@ -12,7 +12,7 @@ export PYTHONPATH=/home/site/.python_packages/lib/site-packages
 # Arranca con logs a stdout/stderr (para que queden en logs)
 exec python -m gunicorn --chdir /home/site/wwwroot \
   -k uvicorn.workers.UvicornWorker main:app \
-  --bind 0.0.0.0:8000 \
+  --bind 0.0.0.0:${PORT:-8000} \
   --workers 1 \
   --timeout 180 \
   --log-level debug \
