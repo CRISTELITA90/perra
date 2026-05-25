@@ -37,7 +37,10 @@ def _graph_token() -> str:
 
 
 def _fetch_file(token: str, file_path: str) -> bytes:
-    site = os.environ["SHAREPOINT_SITE"]  # e.g. "mycompany.sharepoint.com:/sites/MySite"
+    domain = os.environ.get("SHAREPOINT_DOMAIN", "oceanicanarias.sharepoint.com")
+    site_name = os.environ["SHAREPOINT_SITE"]
+    site = f"{domain}:/sites/{site_name}"
+    
     h = {"Authorization": f"Bearer {token}"}
 
     site_resp = requests.get(
