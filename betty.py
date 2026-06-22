@@ -716,9 +716,9 @@ def get_facebook_metrics():
         # Insights: intentar varias combinaciones de métricas
         impressions, reach, eng_rate = None, None, None
         for metric_set, period in [
-            ("page_impressions_unique,page_impressions,page_engaged_users", "days_28"),
-            ("page_impressions,page_reach", "week"),
-            ("page_views_total", "day"),
+            ("page_post_engagements,page_reach,page_impressions", "day"),
+            ("page_post_engagements,page_reach", "week"),
+            ("page_fans", "lifetime"),
         ]:
             try:
                 insights = _fb_get("me/insights", {"metric": metric_set, "period": period})
@@ -727,9 +727,9 @@ def get_facebook_metrics():
                     vals = item.get("values", [])
                     total = sum(v.get("value", 0) for v in vals if isinstance(v.get("value"), (int, float)))
                     metrics_map[item["name"]] = int(total)
-                impressions = metrics_map.get("page_impressions") or metrics_map.get("page_views_total")
-                reach = metrics_map.get("page_impressions_unique") or metrics_map.get("page_reach")
-                engaged = metrics_map.get("page_engaged_users")
+                impressions = metrics_map.get("page_impressions") or metrics_map.get("page_fans")
+                reach = metrics_map.get("page_reach")
+                engaged = metrics_map.get("page_post_engagements")
                 eng_rate = round(engaged / reach * 100, 2) if reach and engaged else None
                 break
             except Exception:
@@ -873,15 +873,22 @@ def get_instagram_metrics():
         # Insights de cuenta (últimos 30 días)
         since = int((datetime.now(timezone.utc) - timedelta(days=30)).timestamp())
         until = int(datetime.now(timezone.utc).timestamp())
-        insights = _fb_get(
+        # reach usa period=day; las demás necesitan metric_type=total_value
+        insights_reach = _fb_get(
+            f"{ig_id}/insights",
+            {"metric": "reach", "period": "day", "since": since, "until": until},
+        )
+        insights_total = _fb_get(
             f"{ig_id}/insights",
             {
-                "metric": "reach,profile_views,accounts_engaged,total_interactions",
+                "metric": "profile_views,accounts_engaged,total_interactions",
+                "metric_type": "total_value",
                 "period": "day",
                 "since": since,
                 "until": until,
             },
         )
+        insights: dict = {"data": insights_reach.get("data", []) + insights_total.get("data", [])}
         metrics_map: dict[str, int] = {}
         for item in insights.get("data", []):
             total = sum(v.get("value", 0) for v in item.get("values", []) if isinstance(v.get("value"), (int, float)))
