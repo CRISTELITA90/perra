@@ -710,14 +710,14 @@ def get_facebook_metrics():
 
     try:
         # Seguidores y fans
-        page_data = _fb_get(page_id, {"fields": "name,fan_count,followers_count"})
+        page_data = _fb_get("me", {"fields": "name,fan_count,followers_count"})
         followers = page_data.get("followers_count") or page_data.get("fan_count")
 
         # Insights: impresiones y alcance últimos 30 días
         since = int((datetime.now(timezone.utc) - timedelta(days=30)).timestamp())
         until = int(datetime.now(timezone.utc).timestamp())
         insights = _fb_get(
-            f"{page_id}/insights",
+            "me/insights",
             {
                 "metric": "page_impressions,page_reach,page_engaged_users,page_post_engagements",
                 "period": "month",
@@ -737,7 +737,7 @@ def get_facebook_metrics():
         eng_rate    = round(engaged / reach * 100, 2) if reach and engaged else None
 
         # Post más reciente
-        posts = _fb_get(f"{page_id}/posts", {"fields": "message,created_time", "$top": "1"})
+        posts = _fb_get("me/posts", {"fields": "message,created_time", "$top": "1"})
         top_post = None
         if posts.get("data"):
             p = posts["data"][0]
