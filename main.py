@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, Any, List, Dict
 
-from betty import router as betty_router
+import betty as _betty_module
 
 app = FastAPI(
     title="Brain2Power API",
@@ -15,7 +15,11 @@ app = FastAPI(
     ),
 )
 
-app.include_router(betty_router)
+app.include_router(_betty_module.router)
+
+@app.get("/ping-betty", tags=["debug"])
+def ping_betty():
+    return {"betty": "ok", "routes": [r.path for r in _betty_module.router.routes if hasattr(r, "path")]}
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
