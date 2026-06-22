@@ -713,43 +713,45 @@ def get_facebook_metrics():
         page_data = _fb_get("me", {"fields": "name,fan_count,followers_count"})
         followers = page_data.get("followers_count") or page_data.get("fan_count")
 
-        # Insights: impresiones y alcance últimos 30 días
-        since = int((datetime.now(timezone.utc) - timedelta(days=30)).timestamp())
-        until = int(datetime.now(timezone.utc).timestamp())
-        insights = _fb_get(
-            "me/insights",
-            {
-                "metric": "page_impressions_unique,page_impressions,page_engaged_users",
-                "period": "days_28",
-            },
-        )
-        metrics_map: dict[str, int] = {}
-        for item in insights.get("data", []):
-            vals = item.get("values", [])
-            total = sum(v.get("value", 0) for v in vals if isinstance(v.get("value"), (int, float)))
-            metrics_map[item["name"]] = int(total)
-
-        impressions = metrics_map.get("page_impressions")
-        reach       = metrics_map.get("page_impressions_unique")
-        engaged     = metrics_map.get("page_engaged_users")
-        eng_rate    = round(engaged / reach * 100, 2) if reach and engaged else None
+        # Insights: intentar varias combinaciones de métricas
+        impressions, reach, eng_rate = None, None, None
+        for metric_set, period in [
+            ("page_impressions_unique,page_impressions,page_engaged_users", "days_28"),
+            ("page_impressions,page_reach", "week"),
+            ("page_views_total", "day"),
+        ]:
+            try:
+                insights = _fb_get("me/insights", {"metric": metric_set, "period": period})
+                metrics_map: dict[str, int] = {}
+                for item in insights.get("data", []):
+                    vals = item.get("values", [])
+                    total = sum(v.get("value", 0) for v in vals if isinstance(v.get("value"), (int, float)))
+                    metrics_map[item["name"]] = int(total)
+                impressions = metrics_map.get("page_impressions") or metrics_map.get("page_views_total")
+                reach = metrics_map.get("page_impressions_unique") or metrics_map.get("page_reach")
+                engaged = metrics_map.get("page_engaged_users")
+                eng_rate = round(engaged / reach * 100, 2) if reach and engaged else None
+                break
+            except Exception:
+                continue
 
         # Post más reciente
-        posts = _fb_get("me/posts", {"fields": "message,created_time", "limit": "1"})
         top_post = None
-        if posts.get("data"):
-            p = posts["data"][0]
-            top_post = f"{p.get('created_time','')[:10]}: {p.get('message','')[:80]}"
+        try:
+            posts = _fb_get("me/posts", {"fields": "message,created_time", "limit": "1"})
+            if posts.get("data"):
+                p = posts["data"][0]
+                top_post = f"{p.get('created_time','')[:10]}: {p.get('message','')[:80]}"
+        except Exception:
+            pass
 
         return SocialMetrics(
             platform="facebook", status="ok", token_valid=True,
-            token_expires=token_info.get("expires_at"),
+            token_expires=None,
             followers=followers, impressions_30d=impressions,
             engagement_rate=eng_rate, reach_30d=reach,
-            top_post=top_post, raw=metrics_map,
+            top_post=top_post, raw={"followers": followers},
         )
-    except HTTPException:
-        raise
     except Exception as exc:
         log.error("Facebook metrics error: %s", exc)
         raise HTTPException(502, str(exc))
