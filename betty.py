@@ -1132,5 +1132,6 @@ def get_config_status():
     }
 
 
-# Register router in standalone app
-app.include_router(router)
+# Standalone: solo registrar si se ejecuta betty.py directamente
+if __name__ == "__main__":
+    app.include_router(router)
