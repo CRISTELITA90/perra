@@ -719,10 +719,8 @@ def get_facebook_metrics():
         insights = _fb_get(
             "me/insights",
             {
-                "metric": "page_impressions,page_reach,page_engaged_users,page_post_engagements",
-                "period": "month",
-                "since": since,
-                "until": until,
+                "metric": "page_impressions_unique,page_impressions,page_engaged_users",
+                "period": "days_28",
             },
         )
         metrics_map: dict[str, int] = {}
@@ -732,12 +730,12 @@ def get_facebook_metrics():
             metrics_map[item["name"]] = int(total)
 
         impressions = metrics_map.get("page_impressions")
-        reach       = metrics_map.get("page_reach")
+        reach       = metrics_map.get("page_impressions_unique")
         engaged     = metrics_map.get("page_engaged_users")
         eng_rate    = round(engaged / reach * 100, 2) if reach and engaged else None
 
         # Post más reciente
-        posts = _fb_get("me/posts", {"fields": "message,created_time", "$top": "1"})
+        posts = _fb_get("me/posts", {"fields": "message,created_time", "limit": "1"})
         top_post = None
         if posts.get("data"):
             p = posts["data"][0]
@@ -876,7 +874,7 @@ def get_instagram_metrics():
         insights = _fb_get(
             f"{ig_id}/insights",
             {
-                "metric": "impressions,reach,profile_views,follower_count",
+                "metric": "reach,profile_views,accounts_engaged,total_interactions",
                 "period": "day",
                 "since": since,
                 "until": until,
@@ -887,7 +885,7 @@ def get_instagram_metrics():
             total = sum(v.get("value", 0) for v in item.get("values", []) if isinstance(v.get("value"), (int, float)))
             metrics_map[item["name"]] = int(total)
 
-        impressions = metrics_map.get("impressions")
+        impressions = metrics_map.get("total_interactions")
         reach       = metrics_map.get("reach")
 
         # Top media reciente (engagement)
