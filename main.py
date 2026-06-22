@@ -4,15 +4,18 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, Any, List, Dict
 
+from betty import router as betty_router
+
 app = FastAPI(
-    title="Data Analyst API",
-    version="0.4",
+    title="Brain2Power API",
+    version="0.5",
     description=(
-        "Backend para el agente data_analyst de Copilot Studio. "
-        "Recibe datos directamente y realiza análisis estadístico, EDA y forecasting. "
+        "Backend unificado: análisis de datos (data_analyst) + Betty (secretaria inteligente). "
         "Cada respuesta incluye `text_summary`, una frase lista para mostrar al usuario."
     ),
 )
+
+app.include_router(betty_router)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
